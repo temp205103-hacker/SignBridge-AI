@@ -1,0 +1,11 @@
+import { Link, useNavigate } from 'react-router-dom'
+import { ArrowRight, Mail, LockKeyhole, Sparkles } from 'lucide-react'
+import { Button } from '../components/UI'
+
+function AuthLayout({ mode }) {
+  const login = mode === 'login'
+  const navigate = useNavigate()
+  return <main className="auth-page"><div className="auth-aside"><div className="brand auth-brand"><div className="brand-mark"><Sparkles size={17} /></div><strong>SignBridge <em>AI</em></strong></div><div className="auth-quote"><span>ISL learning, made human.</span><h1>Build a bridge<br />with every sign.</h1><p>Learn Indian Sign Language with a thoughtful companion that meets you where you are.</p></div><div className="auth-aside-footer"><span className="status-dot" />A calmer way to connect</div></div><section className="auth-form-wrap"><div className="auth-form"><div className="mobile-auth-brand"><div className="brand-mark"><Sparkles size={17} /></div><strong>SignBridge <em>AI</em></strong></div><span className="eyebrow">Welcome back</span><h2>{login ? 'Good to see you.' : 'Start your journey.'}</h2><p className="auth-subtitle">{login ? 'Continue learning at your own pace.' : 'Create your free account and learn your first signs.'}</p><form onSubmit={(event) => { event.preventDefault(); navigate('/') }}><label>Email address<div className="input-wrap"><Mail size={17} /><input type="email" placeholder="you@example.com" required /></div></label><label>Password<div className="input-wrap"><LockKeyhole size={17} /><input type="password" placeholder="At least 8 characters" minLength="8" required /></div></label>{login && <div className="form-meta"><label className="check-label"><input type="checkbox" /> Remember me</label><a href="#forgot">Forgot password?</a></div>}<Button type="submit" icon={ArrowRight}>{login ? 'Sign in' : 'Create account'}</Button></form><p className="auth-switch">{login ? "Don't have an account?" : 'Already have an account?'} <Link to={login ? '/register' : '/login'}>{login ? 'Create one' : 'Sign in'}</Link></p><small className="auth-language">You are learning <strong>Indian Sign Language (ISL)</strong></small></div></section></main>
+}
+export function Login() { return <AuthLayout mode="login" /> }
+export function Register() { return <AuthLayout mode="register" /> }
