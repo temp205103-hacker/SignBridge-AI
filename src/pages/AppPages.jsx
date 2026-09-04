@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { ArrowRight, Camera, CheckCircle2, ChevronRight, Flame, Languages, RotateCcw, Send, ShieldCheck, Sparkles, Star, Trophy, UserRound, AlertTriangle, History, Square, Target } from 'lucide-react'
 import { signs, lessons, textSignDictionary, frequentPhrases, learningCategories } from '../data/signs'
 import { Button, EmptyState, LessonRow, ProgressBar, StatCard } from '../components/UI'
-import { getCameraErrorMessage, requestCamera, stopCamera } from '../services/cameraService'
+import { CameraConsentDialog } from '../components/CameraConsentDialog'
+import { getCameraErrorMessage, requestCamera, stopCamera, hasUserConsent, setUserConsent } from '../services/cameraService'
 import { classifyPrototypeGesture, closeLandmarkRecognizer, createLandmarkRecognizer, detectLandmarks, getPrototypeVocabulary } from '../services/signRecognitionService'
 
 export function PageHeader({ eyebrow, title, description, action }) { return <div className="page-header"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1>{description && <p>{description}</p>}</div>{action}</div> }
@@ -19,10 +20,11 @@ export function Home() {
 }
 function PlayIcon(props) { return <span {...props}>▶</span> }
 
-export function Learn() { const [filter, setFilter] = useState('All signs'); const [progress, update] = useLearningProgress(); const filtered = filter === 'All signs' ? signs : signs.filter((sign) => sign.category === filter); const complete = (id) => update((current) => ({ completedSigns: current.completedSigns.includes(id) ? current.completedSigns : [...current.completedSigns, id] })); return <><PageHeader eyebrow="The library" title="Learn ISL, one sign at a time." description="Explore practical signs with clear meanings, examples, and an honest prototype demonstration area." action={<div className="library-count"><strong>{progress.completedSigns.length}</strong><span>of {signs.length}<br />signs completed</span></div>} /><div className="category-row"><button className={filter === 'All signs' ? 'filter-active' : ''} onClick={() => setFilter('All signs')}>All signs</button>{learningCategories.map((category) => <button key={category} className={filter === category ? 'filter-active' : ''} onClick={() => setFilter(category)}>{category}</button>)}</div><div className="learning-grid">{filtered.map((sign) => <article className="learning-card" key={sign.id}><div className="learning-visual"><span>{sign.emoji}</span><small>Prototype demonstration</small></div><div className="learning-copy"><div className="learning-title"><h2>{sign.term}</h2>{progress.completedSigns.includes(sign.id) && <CheckCircle2 size={18} className="completed-icon" />}</div><span className="pill">{sign.category}</span><p><strong>Meaning:</strong> {sign.meaning}</p><p><strong>Example:</strong> {sign.example}</p><div className="learning-actions"><Link className="button button-outline" to={`/practice?sign=${sign.id}`}>Practice <ArrowRight size={15} /></Link><button className="button button-primary" disabled={progress.completedSigns.includes(sign.id)} onClick={() => complete(sign.id)}>{progress.completedSigns.includes(sign.id) ? 'Completed' : 'Mark completed'} <CheckCircle2 size={15} /></button></div></div></article>)}</div></> }
+export function Learn() { const [filter, setFilter] = useState('All signs'); const [progress, update] = useLearningProgress(); const filtered = filter === 'All signs' ? signs : signs.filter((sign) => sign.category === filter); const complete = (id) => update((current) => ({ completedSigns: current.completedSigns.includes(id) ? current.completedSigns : [...current.completedSigns, id] })); return <><PageHeader eyebrow="The library" title="Learn ISL, one sign at a time." description="Explore practical signs with clear meanings, examples, and an honest prototype demonstration area." action={<div className="library-count"><strong>{progress.completedSigns.length}</strong><span>of {signs.length}<br />signs completed</span></div>} /><div className="category-row"><button className={filter === 'All signs' ? 'filter-active' : ''} onClick={() => setFilter('All signs')}>All signs</button>{learningCategories.map((category) => <button key={category} className={filter === category ? 'filter-active' : ''} onClick={() => setFilter(category)}>{category}</button>)}</div><div className="learning-grid">{filtered.map((sign) => <article className="learning-card" key={sign.id}><div className="learning-visual"><span>{sign.emoji}</span><small>Prototype demonstration</small></div><div className="learning-copy"><div className="learning-title"><h2>{sign.term}</h2>{progress.completedSigns.includes(sign.id) && <CheckCircle2 size={18} className="completed-icon" />}</div><span className="pill">{sign.category}</span><p><strong>Meaning:</strong> {sign.meaning}</p><p><strong>Example:</strong> {sign.example}</p><div className="sign-representation-box"><div className="sign-component"><span className="sign-component-label">Hand Shape</span><div className="sign-component-value">{sign.handShape}</div></div><div className="sign-component"><span className="sign-component-label">Motion</span><div className="sign-motion">{sign.motion}</div></div><div className="sign-component"><span className="sign-component-label">Representation</span><div className="sign-component-description">{sign.representation}</div></div></div><div className="learning-actions"><Link className="button button-outline" to={`/practice?sign=${sign.id}`}>Practice <ArrowRight size={15} /></Link><button className="button button-primary" disabled={progress.completedSigns.includes(sign.id)} onClick={() => complete(sign.id)}>{progress.completedSigns.includes(sign.id) ? 'Completed' : 'Mark completed'} <CheckCircle2 size={15} /></button></div></div></article>)}</div></> }
 
 export function Translator() {
   const videoRef = useRef(null)
+  const overlayRef = useRef(null)
   const streamRef = useRef(null)
   const recognizerRef = useRef(null)
   const frameRef = useRef(null)
@@ -31,42 +33,157 @@ export function Translator() {
   const [detected, setDetected] = useState(null)
   const [history, setHistory] = useState([])
   const [landmarksReady, setLandmarksReady] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
+  const [showConsent, setShowConsent] = useState(false)
+
+  const clearLandmarkOverlay = () => {
+    const canvas = overlayRef.current
+    if (!canvas) return
+    canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
+  }
+
+  const waitForVideoFrame = async () => {
+    const video = videoRef.current
+    if (!video) throw new Error('Video element is not available.')
+    if (video.videoWidth > 0 && video.videoHeight > 0) return
+
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        video.removeEventListener('loadedmetadata', handleReady)
+        reject(new Error('Camera video did not become ready.'))
+      }, 5000)
+      const handleReady = () => {
+        clearTimeout(timeout)
+        video.removeEventListener('loadedmetadata', handleReady)
+        resolve()
+      }
+      video.addEventListener('loadedmetadata', handleReady, { once: true })
+    })
+  }
 
   useEffect(() => () => {
     cancelAnimationFrame(frameRef.current)
+    clearLandmarkOverlay()
     closeLandmarkRecognizer(recognizerRef.current)
     stopCamera(streamRef.current, videoRef.current)
   }, [])
 
-  const scanFrame = (timestamp) => {
-    const landmarks = detectLandmarks(recognizerRef.current, videoRef.current, timestamp)
-    if (landmarks?.landmarks?.length) {
-      setStatus('hand-detected')
-      const result = classifyPrototypeGesture(landmarks)
-      if (result.sign) {
-        setDetected(result)
-        setHistory((items) => [{ sign: result.sign, confidence: result.confidence, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }, ...items].slice(0, 8))
-      }
-    } else {
-      setStatus('scanning')
+  const drawLandmarkOverlay = (hands, poseLandmarks) => {
+    const canvas = overlayRef.current
+    const video = videoRef.current
+    if (!canvas || !video) return
+
+    const width = video.clientWidth
+    const height = video.clientHeight
+    const pixelRatio = window.devicePixelRatio || 1
+    if (canvas.width !== width * pixelRatio || canvas.height !== height * pixelRatio) {
+      canvas.width = width * pixelRatio
+      canvas.height = height * pixelRatio
     }
-    frameRef.current = requestAnimationFrame(scanFrame)
+
+    const context = canvas.getContext('2d')
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
+    context.clearRect(0, 0, width, height)
+    if ((!hands?.length && !poseLandmarks?.length) || !video.videoWidth || !video.videoHeight) return
+
+    const scale = Math.max(width / video.videoWidth, height / video.videoHeight)
+    const offsetX = (width - video.videoWidth * scale) / 2
+    const offsetY = (height - video.videoHeight * scale) / 2
+    const point = (landmark) => ({
+      x: width - (landmark.x * video.videoWidth * scale + offsetX),
+      y: landmark.y * video.videoHeight * scale + offsetY,
+    })
+    const connections = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]]
+    const poseConnections = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28]]
+
+    if (poseLandmarks?.length) {
+      poseLandmarks.forEach((landmarks) => {
+        context.strokeStyle = 'rgba(255, 190, 120, .85)'
+        context.lineWidth = 3
+        poseConnections.forEach(([start, end]) => {
+          if (!landmarks[start] || !landmarks[end]) return
+          const first = point(landmarks[start])
+          const second = point(landmarks[end])
+          context.beginPath()
+          context.moveTo(first.x, first.y)
+          context.lineTo(second.x, second.y)
+          context.stroke()
+        })
+      })
+    }
+
+    hands?.forEach((landmarks) => {
+      context.strokeStyle = '#7de2d1'
+      context.lineWidth = 3
+      context.lineCap = 'round'
+      connections.forEach(([start, end]) => {
+        const first = point(landmarks[start])
+        const second = point(landmarks[end])
+        context.beginPath()
+        context.moveTo(first.x, first.y)
+        context.lineTo(second.x, second.y)
+        context.stroke()
+      })
+      context.fillStyle = '#ffb199'
+      landmarks.forEach((landmark) => {
+        const position = point(landmark)
+        context.beginPath()
+        context.arc(position.x, position.y, 4, 0, Math.PI * 2)
+        context.fill()
+      })
+    })
   }
 
-  const startCamera = async () => {
+  const scanFrame = (timestamp) => {
+    try {
+      const landmarks = detectLandmarks(recognizerRef.current, videoRef.current, timestamp)
+      drawLandmarkOverlay(landmarks?.hands?.landmarks, landmarks?.pose?.landmarks)
+      if (landmarks?.hands?.landmarks?.length > 0) {
+        setStatus('hand-detected')
+        const result = classifyPrototypeGesture(landmarks.hands.landmarks)
+        if (result.sign) {
+          setDetected(result)
+          setHistory((items) => [{ sign: result.sign, confidence: Math.round(result.confidence * 100), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }, ...items].slice(0, 8))
+        }
+      } else {
+        setStatus('scanning')
+      }
+      frameRef.current = requestAnimationFrame(scanFrame)
+    } catch (recognitionError) {
+      clearLandmarkOverlay()
+      setError(`Gesture detection stopped: ${recognitionError.message || 'the model returned an invalid frame.'}`)
+      setStatus('model-error')
+    }
+  }
+
+  const handleConsentAccept = async () => {
+    setUserConsent(true)
+    setShowConsent(false)
+    await startCameraAfterConsent()
+  }
+
+  const handleConsentReject = () => {
+    setShowConsent(false)
+  }
+
+  const startCameraAfterConsent = async () => {
     setError('')
     setStatus('requesting')
     try {
-      streamRef.current = await requestCamera(videoRef.current)
+      if (!streamRef.current) {
+        streamRef.current = await requestCamera(videoRef.current)
+        setCameraReady(true)
+      }
+      await waitForVideoFrame()
       setStatus('loading-model')
       const result = await createLandmarkRecognizer()
       if (!result.available) {
-        setError('Hand landmark detection could not load. Check your connection, then try again.')
+        const detail = result.error?.message ? ` ${result.error.message}` : ''
+        setError(`Hand landmark detection could not load.${detail} Check your internet connection and try again.`)
         setStatus('model-error')
-        stopCamera(streamRef.current, videoRef.current)
         return
       }
-      recognizerRef.current = result.landmarker
+      recognizerRef.current = { landmarker: result.landmarker, poseLandmarker: result.poseLandmarker }
       setLandmarksReady(true)
       setStatus('scanning')
       frameRef.current = requestAnimationFrame(scanFrame)
@@ -74,23 +191,37 @@ export function Translator() {
       setError(getCameraErrorMessage(cameraError))
       setStatus('error')
       stopCamera(streamRef.current, videoRef.current)
+      streamRef.current = null
+      setCameraReady(false)
+      setLandmarksReady(false)
+    }
+  }
+
+  const startCamera = () => {
+    if (!hasUserConsent()) {
+      setShowConsent(true)
+    } else {
+      startCameraAfterConsent()
     }
   }
 
   const stopScanning = () => {
     cancelAnimationFrame(frameRef.current)
+    clearLandmarkOverlay()
     closeLandmarkRecognizer(recognizerRef.current)
     recognizerRef.current = null
     stopCamera(streamRef.current, videoRef.current)
     streamRef.current = null
+    setCameraReady(false)
     setLandmarksReady(false)
     setStatus('idle')
   }
 
-  const statusText = { idle: 'Camera is off', requesting: 'Requesting camera permission…', 'loading-model': 'Loading hand landmarks…', scanning: 'Scanning for a hand…', 'hand-detected': 'Hand detected · classifier awaiting model', error: 'Camera unavailable', 'model-error': 'Landmark model unavailable' }[status]
+  const statusText = { idle: 'Camera is off', requesting: 'Requesting camera permission…', 'loading-model': 'Loading ISL gesture classifier…', scanning: 'Scanning for hand gesture…', 'hand-detected': 'Hand detected · analyzing gesture', error: 'Camera unavailable', 'model-error': 'Gesture model unavailable' }[status]
   const isActive = ['requesting', 'loading-model', 'scanning', 'hand-detected'].includes(status)
+  const isPreviewActive = isActive || cameraReady
 
-  return <><PageHeader eyebrow="AI-powered practice" title="AI Sign Translator" description="A camera and hand-landmark pipeline for a small, clearly defined ISL vocabulary." /><div className="notice"><ShieldCheck size={18} /><span><strong>Prototype supports selected signs.</strong> This learning aid currently prepares camera input and hand landmarks. It does not translate every ISL sign or replace a qualified interpreter.</span></div><div className="translator-layout"><section className="camera-panel"><div className="camera-header"><span><span className={isActive ? 'live-dot' : 'status-dot'} />Live camera</span><span className="recognition-status">{statusText}</span></div><div className={`camera-preview camera-live ${isActive ? 'is-active' : ''}`}>{isActive ? <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview" /> : <><Camera size={34} /><strong>Camera preview</strong><span>Camera access is off</span><small>Permission is requested only when you start.</small></>} {isActive && <span className="camera-badge"><span className="live-dot" />LIVE</span>}</div>{error && <div className="camera-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>}<div className="camera-actions"><Button onClick={isActive ? stopScanning : startCamera} icon={isActive ? Square : Camera}>{isActive ? 'Stop camera' : 'Start camera'}</Button>{status === 'error' || status === 'model-error' ? <button className="text-button retry-button" onClick={startCamera}>Try again</button> : null}</div></section><section className="translation-result"><div className="result-heading"><span className="eyebrow">Detected sign</span><button className="clear-button" onClick={() => setDetected(null)} disabled={!detected}>Clear <RotateCcw size={13} /></button></div><div className="result-word">{detected?.sign?.toUpperCase() || '—'}</div><p>{detected ? 'Sign recognized by the prototype classifier.' : landmarksReady ? 'Hand landmarks are ready. No supported sign has been classified yet.' : 'Start the camera to begin the recognition pipeline.'}</p><div className="confidence"><span>Confidence</span><strong>{detected ? `${detected.confidence}%` : '—'}</strong></div><ProgressBar value={detected?.confidence || 0} tone="blue" /><div className="pipeline"><span className="eyebrow">Pipeline status</span><div><span className="pipeline-done">Camera</span><ChevronRight size={13} /><span className={landmarksReady ? 'pipeline-done' : ''}>Hand landmarks</span><ChevronRight size={13} /><span>ISL classifier</span><ChevronRight size={13} /><span>Text output</span></div></div></section></div><div className="translator-lower"><section className="panel supported-signs"><div className="section-heading"><div><span className="eyebrow">Model scope</span><h2>Supported vocabulary</h2></div><span className="muted-text">{getPrototypeVocabulary().length} signs</span></div><div className="supported-list">{getPrototypeVocabulary().map((sign) => <span key={sign}>{sign}</span>)}</div></section><section className="panel history-panel"><div className="section-heading"><div><span className="eyebrow">Session log</span><h2>Translation history</h2></div><History size={18} className="muted-icon" /></div>{history.length ? history.map((item, index) => <div className="history-row" key={`${item.time}-${index}`}><CheckCircle2 size={16} /><strong>{item.sign}</strong><span>{item.confidence}% · {item.time}</span></div>) : <EmptyState title="No translations yet" text="Recognized signs will appear here during this session." />}</section></div></>
+  return <><CameraConsentDialog isOpen={showConsent} onAccept={handleConsentAccept} onReject={handleConsentReject} /><PageHeader eyebrow="AI-powered practice" title="AI Sign Translator" description="An evaluated ISL gesture recognition model with hand tracking for real-time sign detection and feedback." /><div className="notice"><ShieldCheck size={18} /><span><strong>Prototype with evaluated gesture classifier.</strong> This gesture recognition model processes hand landmarks only and does not replace a qualified interpreter.</span></div><div className="translator-layout"><section className="camera-panel"><div className="camera-header"><span><span className={isPreviewActive ? 'live-dot' : 'status-dot'} />Live camera</span><span className="recognition-status">{statusText}</span></div><div className={`camera-preview camera-live ${isPreviewActive ? 'is-active' : ''}`}><video className={isPreviewActive ? '' : 'camera-video-hidden'} ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview" /><canvas className="landmark-overlay" ref={overlayRef} aria-hidden="true" />{!isPreviewActive && <><Camera size={34} /><strong>Camera preview</strong><span>Camera access is off</span><small>Consent required to start camera</small></>} {isPreviewActive && <span className="camera-badge"><span className="live-dot" />LIVE</span>}</div>{error && <div className="camera-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>}<div className="camera-actions"><Button onClick={isPreviewActive ? stopScanning : startCamera} icon={isPreviewActive ? Square : Camera}>{isPreviewActive ? 'Stop camera' : 'Start camera'}</Button>{status === 'error' || status === 'model-error' ? <button className="text-button retry-button" onClick={startCamera}>Try again</button> : null}</div></section><section className="translation-result"><div className="result-heading"><span className="eyebrow">Detected sign</span><button className="clear-button" onClick={() => setDetected(null)} disabled={!detected}>Clear <RotateCcw size={13} /></button></div><div className="result-word">{detected?.sign?.toUpperCase() || '—'}</div><div className="confidence" style={{ marginTop: detected ? '0' : '40px' }}><ProgressBar value={detected ? detected.confidence * 100 : 0} tone="coral" /><div className="confidence-row"><span>Confidence</span><strong>{detected ? `${Math.round(detected.confidence * 100)}%` : 'Waiting for a sign'}</strong></div></div><div className="result-note"><Languages size={19} className="muted-icon" />{detected ? <><div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '8px' }}>Confidence: <strong style={{ color: 'var(--coral)' }}>{detected.confidence}%</strong></div><p style={{ fontSize: '12px', color: 'var(--muted)' }}>Sign recognized by the ISL gesture classifier.</p></> : landmarksReady ? <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>Hand landmarks detected. Waiting for a recognized gesture…</p> : <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0 }}>Start the camera to begin gesture recognition.</p>}</div><div className="pipeline"><span className="eyebrow">Pipeline status</span><div><span className="pipeline-done">Camera</span><ChevronRight size={13} /><span className={landmarksReady ? 'pipeline-done' : ''}>Hand landmarks</span><ChevronRight size={13} /><span>ISL classifier</span><ChevronRight size={13} /><span>Text output</span></div></div></section></div><div className="translator-lower"><section className="panel supported-signs"><div className="section-heading"><div><span className="eyebrow">Model scope</span><h2>Supported vocabulary</h2></div><span className="muted-text">{getPrototypeVocabulary().length} signs</span></div><div className="supported-list">{getPrototypeVocabulary().map((sign) => <span key={sign}>{sign}</span>)}</div></section><section className="panel history-panel"><div className="section-heading"><div><span className="eyebrow">Session log</span><h2>Translation history</h2></div><History size={18} className="muted-icon" /></div>{history.length ? history.map((item, index) => <div className="history-row" key={`${item.time}-${index}`}><CheckCircle2 size={16} /><strong>{item.sign}</strong><span>{item.confidence}% · {item.time}</span></div>) : <EmptyState title="No translations yet" text="Recognized signs will appear here during this session." />}</section></div></>
 }
 
 export function TextToSign() {
@@ -117,7 +248,7 @@ export function TextToSign() {
   return <><PageHeader eyebrow="Communication tool" title="Text to Sign" description="Type a word or short phrase and receive a corresponding Indian Sign Language demonstration." /><div className="prototype-label"><ShieldCheck size={16} /><strong>Prototype supports selected signs.</strong><span>Demonstrations are placeholders until educator-reviewed media is available.</span></div><div className="text-sign-layout"><section className="panel text-input-panel"><div className="section-heading"><div><span className="eyebrow">Your phrase</span><h2>What would you like to say?</h2></div><span className="character-count">{text.length}/160</span></div><label className="sr-only" htmlFor="sign-query">Word or short phrase</label><textarea id="sign-query" maxLength="160" value={text} onChange={(e) => { setText(e.target.value); setResult(null) }} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) translate() }} placeholder="Try “HELLO” or “PLEASE HELP”" /><div className="input-footer"><span><Sparkles size={15} /> ISL dictionary</span><div className="input-actions"><button className="clear-button" onClick={clear} disabled={!text && !result}>Clear</button><Button onClick={() => translate()} icon={Send}>Translate</Button></div></div></section><section className="panel phrase-output"><div className="section-heading"><div><span className="eyebrow">Sign result</span><h2>{result?.query?.toUpperCase() || '—'}</h2></div><Languages size={19} className="muted-icon" /></div>{result?.complete ? <div className="demonstration-result"><div className="demonstration-banner"><Camera size={18} /><strong>Sign demonstration area</strong><span>Placeholder demonstration</span></div><div className="demonstration-sequence">{result.sequence.map((sign, index) => <div className="demo-sign" key={sign.id}><div className="demo-visual"><span>{sign.emoji}</span><small>Placeholder</small></div><strong>{sign.term.toUpperCase()}</strong><p>{sign.demonstration}</p>{index < result.sequence.length - 1 && <ChevronRight className="demo-arrow" size={17} />}</div>)}</div></div> : result ? <div className="unsupported-result"><AlertTriangle size={22} /><strong>That phrase is outside the prototype dictionary.</strong><p>Try one supported sign at a time, or use a listed frequent phrase. No unverified gesture is shown.</p></div> : <EmptyState title="Your sign result will appear here" text="Search a supported word or phrase to begin." />}</section></div><div className="text-sign-bottom"><section className="panel phrase-presets"><div className="section-heading"><div><span className="eyebrow">Quick start</span><h2>Frequently used phrases</h2></div></div><div className="phrase-list">{frequentPhrases.map((item) => <button key={item.phrase} onClick={() => { setText(item.phrase); translate(item.phrase) }}><span>{item.phrase}</span><small>{item.category}</small><ArrowRight size={15} /></button>)}</div></section><section className="panel recent-searches"><div className="section-heading"><div><span className="eyebrow">Your activity</span><h2>Recently searched signs</h2></div><History size={18} className="muted-icon" /></div>{recent.length ? <div className="recent-list">{recent.map((item) => <button key={item} onClick={() => { setText(item); translate(item) }}>{item}<ChevronRight size={15} /></button>)}</div> : <EmptyState title="No recent searches" text="Your translated words will appear here." />}</section></div></>
 }
 
-export function Practice() { const params = new URLSearchParams(window.location.search); const initial = signs.find((sign) => sign.id === params.get('sign')) || signs[0]; const [target, setTarget] = useState(initial); const [progress, update] = useLearningProgress(); const [feedback, setFeedback] = useState(''); const [sessionStarted, setSessionStarted] = useState(false); const markAttempt = (completed) => { const today = new Date().toISOString().slice(0, 10); setFeedback(completed ? `Self-check recorded for ${target.term}. This is your own confirmation, not an AI recognition result.` : 'Keep practicing, then use the self-check when you feel ready.'); update((current) => ({ practiceAttempts: current.practiceAttempts + 1, practiceSessions: sessionStarted ? current.practiceSessions : current.practiceSessions + 1, completedSigns: completed && !current.completedSigns.includes(target.id) ? [...current.completedSigns, target.id] : current.completedSigns, practiceDates: [...new Set([...current.practiceDates, today])], lastPracticeDate: today })); setSessionStarted(true) }; const next = () => { const index = signs.findIndex((sign) => sign.id === target.id); setTarget(signs[(index + 1) % signs.length]); setFeedback('') }; return <><PageHeader eyebrow="Build your fluency" title={`Practice: ${target.term.toUpperCase()}`} description="Practice at your own pace. Self-checks record your reflection; only the translator reports actual recognition data." action={<div className="practice-stat"><strong>{progress.practiceAttempts}</strong><span>attempts recorded</span></div>} /><div className="practice-workspace"><section className="practice-target panel"><span className="eyebrow">Target sign · {target.category}</span><div className="target-visual"><span>{target.emoji}</span><small>Sign demonstration area · placeholder</small></div><h2>{target.term}</h2><p>{target.meaning}</p><div className="practice-actions"><Button onClick={() => markAttempt(false)} variant="outline" icon={RotateCcw}>Try again</Button><Button onClick={() => markAttempt(true)} icon={CheckCircle2}>I did it</Button><Button onClick={next} variant="dark" icon={ArrowRight}>Next sign</Button></div>{feedback && <div className="practice-feedback" role="status">{feedback}</div>}</section><aside className="practice-guide panel"><span className="eyebrow">Practice notes</span><h2>Make it yours</h2><p>{target.example}</p><ul><li>Watch the placeholder demonstration carefully.</li><li>Repeat the movement several times.</li><li>Use I did it only for your own self-check.</li></ul><Link to="/translator" className="text-button">Use actual recognition in Translator <ArrowRight size={14} /></Link></aside></div></> }
+export function LegacyPractice() { const params = new URLSearchParams(window.location.search); const initial = signs.find((sign) => sign.id === params.get('sign')) || signs[0]; const [target, setTarget] = useState(initial); const [progress, update] = useLearningProgress(); const [feedback, setFeedback] = useState(''); const [sessionStarted, setSessionStarted] = useState(false); const markAttempt = (completed) => { const today = new Date().toISOString().slice(0, 10); setFeedback(completed ? `Self-check recorded for ${target.term}. This is your own confirmation, not an AI recognition result.` : 'Keep practicing, then use the self-check when you feel ready.'); update((current) => ({ practiceAttempts: current.practiceAttempts + 1, practiceSessions: sessionStarted ? current.practiceSessions : current.practiceSessions + 1, completedSigns: completed && !current.completedSigns.includes(target.id) ? [...current.completedSigns, target.id] : current.completedSigns, practiceDates: [...new Set([...current.practiceDates, today])], lastPracticeDate: today })); setSessionStarted(true) }; const next = () => { const index = signs.findIndex((sign) => sign.id === target.id); setTarget(signs[(index + 1) % signs.length]); setFeedback('') }; return <><PageHeader eyebrow="Build your fluency" title={`Practice: ${target.term.toUpperCase()}`} description="Practice at your own pace. Self-checks record your reflection; only the translator reports actual recognition data." action={<div className="practice-stat"><strong>{progress.practiceAttempts}</strong><span>attempts recorded</span></div>} /><div className="practice-workspace"><section className="practice-target panel"><span className="eyebrow">Target sign · {target.category}</span><div className="target-visual"><span>{target.emoji}</span><small>Sign demonstration area · placeholder</small></div><h2>{target.term}</h2><p>{target.meaning}</p><div className="practice-actions"><Button onClick={() => markAttempt(false)} variant="outline" icon={RotateCcw}>Try again</Button><Button onClick={() => markAttempt(true)} icon={CheckCircle2}>I did it</Button><Button onClick={next} variant="dark" icon={ArrowRight}>Next sign</Button></div>{feedback && <div className="practice-feedback" role="status">{feedback}</div>}</section><aside className="practice-guide panel"><span className="eyebrow">Practice notes</span><h2>Make it yours</h2><p>{target.example}</p><ul><li>Watch the placeholder demonstration carefully.</li><li>Repeat the movement several times.</li><li>Use I did it only for your own self-check.</li></ul><Link to="/translator" className="text-button">Use actual recognition in Translator <ArrowRight size={14} /></Link></aside></div></> }
 
 export function Quiz() { const questions = signs.slice(0, 5).map((sign, index) => { const meaningQuestion = index % 2 === 0; return { sign, prompt: meaningQuestion ? `What does the sign “${sign.term}” mean?` : `Which sign means “${sign.meaning}”?`, correct: meaningQuestion ? sign.meaning : sign.term, answers: [meaningQuestion ? sign.meaning : sign.term, ...signs.filter((item) => item.id !== sign.id).slice(index, index + 3).map((item) => meaningQuestion ? item.meaning : item.term)] } }); const [step, setStep] = useState(0); const [selected, setSelected] = useState(null); const [score, setScore] = useState(0); const [finished, setFinished] = useState(false); const [progress, update] = useLearningProgress(); const question = questions[step]; const choose = (answer) => { if (selected) return; setSelected(answer); if (answer === question.correct) setScore((value) => value + 1) }; const next = () => { const finalScore = score + (step === questions.length - 1 && selected === question.correct ? 1 : 0); if (step === questions.length - 1) { update((current) => ({ quizScores: [...current.quizScores, Math.round((finalScore / questions.length) * 100)] })); setScore(finalScore); setFinished(true) } else { setStep((value) => value + 1); setSelected(null) } }; return <><PageHeader eyebrow="Check your progress" title="Daily quiz" description="Mix sign-to-meaning and meaning-to-sign questions. Answers are scored when you submit." />{finished ? <div className="quiz-shell quiz-finished"><Trophy size={34} /><span className="eyebrow">Quiz complete</span><h2>{score} / {questions.length}</h2><p>Your score: {Math.round((score / questions.length) * 100)}%</p><Button onClick={() => { setStep(0); setScore(0); setSelected(null); setFinished(false) }} icon={RotateCcw}>Try again</Button></div> : <div className="quiz-shell"><div className="quiz-top"><span>Question {step + 1} of {questions.length}</span><span>{progress.quizScores.length} completed quizzes</span></div><ProgressBar value={((step + 1) / questions.length) * 100} tone="coral" /><div className="quiz-question"><span className="question-number">0{step + 1}</span><h2>{question.prompt}</h2><div className="quiz-options">{question.answers.map((answer, index) => <button key={answer} className={selected && (answer === selected ? (answer === question.correct ? 'answer-correct' : 'answer-wrong') : '')} onClick={() => choose(answer)}><span>{String.fromCharCode(65 + index)}</span>{answer}{selected === answer && (answer === question.correct ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />)}</button>)}</div>{selected && <p className={selected === question.correct ? 'quiz-correct' : 'quiz-wrong'}>{selected === question.correct ? 'Correct. Nice work.' : `Not quite. The answer is ${question.correct}.`}</p>}<div className="quiz-footer"><span><Star size={16} /> {score} points</span><Button onClick={next} disabled={!selected} icon={ArrowRight}>{step === questions.length - 1 ? 'Finish quiz' : 'Next question'}</Button></div></div></div>}</> }
 
