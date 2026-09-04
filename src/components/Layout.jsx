@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { Bell, BookOpen, Brain, ChevronDown, CircleUserRound, Gauge, Home, Languages, Menu, Moon, Settings, Sparkles, Sun, Target, Type, X } from 'lucide-react'
 import { useState } from 'react'
+import { getCurrentUser, getUserInitials } from '../services/authService'
 
 const links = [
   { to: '/', label: 'Home', icon: Home }, { to: '/learn', label: 'Learn', icon: BookOpen },
@@ -16,7 +17,9 @@ export function Sidebar({ onClose }) {
 
 export function Topbar({ onMenu, dark, onTheme }) {
   const navigate = useNavigate()
-  return <header className="topbar"><button className="mobile-menu icon-button" onClick={onMenu} aria-label="Open navigation"><Menu size={21} /></button><div className="topbar-context"><span>Workspace</span><ChevronDown size={14} /></div><div className="topbar-actions"><button className="icon-button" onClick={onTheme} aria-label="Toggle color theme">{dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button notification" aria-label="Notifications"><Bell size={18} /><i /></button><button className="avatar" onClick={() => navigate('/profile')} aria-label="Open profile">AR</button></div></header>
+  const user = getCurrentUser()
+  const userName = user?.name || 'User'
+  return <header className="topbar"><button className="mobile-menu icon-button" onClick={onMenu} aria-label="Open navigation"><Menu size={21} /></button><div className="topbar-context"><span>Workspace</span><ChevronDown size={14} /></div><div className="topbar-actions"><button className="icon-button" onClick={onTheme} aria-label="Toggle color theme">{dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button notification" aria-label="Notifications"><Bell size={18} /><i /></button><button className="avatar" onClick={() => navigate('/profile')} aria-label={`Open ${userName} profile`}>{getUserInitials(userName)}</button></div></header>
 }
 
 export function AppShell({ children }) {
