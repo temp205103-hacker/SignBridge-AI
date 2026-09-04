@@ -105,3 +105,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .camera-preview:not(.camera-live) span, .camera-preview:not(.camera-live) small { color:#aab8b4; }
 .camera-preview:not(.camera-live) svg { color:#aab8b4; }
 @media (max-width:760px) { .text-sign-layout > *, .text-sign-bottom > * { width:100%; }.phrase-output, .text-input-panel { overflow:hidden; }.demonstration-banner { align-items:flex-start; flex-wrap:wrap; }.demonstration-banner span { margin-left:26px; flex-basis:100%; }.input-footer { flex-wrap:wrap; }.input-actions { margin-left:auto; } }
+
+.auth-error {
+  color: #dc2626;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  margin: 12px 0 18px;
+}
+:root[data-theme=dark] .auth-error {
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.15);
+  border-color: rgba(220, 38, 38, 0.3);
+}
+

@@ -15,12 +15,15 @@ function ProtectedApp() {
 }
 
 function App() {
-  useState(() => {
-    localStorage.removeItem('signbridge-user')
-    return true
-  })
-
-  return <BrowserRouter><Routes><Route path="/login" element={<Login />} /><Route path="/register" element={<Register />} /><Route path="/*" element={<ProtectedApp />} /></Routes></BrowserRouter>
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/*" element={<ProtectedApp />} />
+      </Routes>
+    </BrowserRouter>
+  )
 }
 
 export default App
