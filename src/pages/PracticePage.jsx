@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, ChevronRight, RotateCcw } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { signs } from '../data/signs'
 import { Button, ProgressBar } from '../components/UI'
 import { classifyPrototypeGesture, closeLandmarkRecognizer, createLandmarkRecognizer, detectLandmarks } from '../services/signRecognitionService'
@@ -69,13 +69,23 @@ export function PracticePage() {
   const [videoError, setVideoError] = useState('')
   const [attempts, setAttempts] = useState(0)
 
-  const next = () => {
+  const moveTo = (offset) => {
     const index = signs.findIndex((sign) => sign.id === target.id)
-    setTarget(signs[(index + 1) % signs.length])
+    setTarget(signs[(index + offset + signs.length) % signs.length])
     setDetected(null)
     setVideoError('')
   }
+  const next = () => moveTo(1)
+  const previous = () => moveTo(-1)
+  const completePractice = () => {
+    setAttempts((value) => value + 1)
+    next()
+  }
   const accuracy = detected?.sign?.toLowerCase() === target.term.toLowerCase() ? Math.round((detected.confidence || 0) * 100) : 0
 
-  return <><div className="page-header"><div><span className="eyebrow">Build your fluency</span><h1>Practice: {target.term.toUpperCase()}</h1><p>Practice with or without video. Video accuracy compares the detected ISL sign with your selected target.</p></div><div className="practice-stat"><strong>{attempts}</strong><span>attempts recorded</span></div></div><div className="practice-mode-switch"><button className={mode === 'none' ? 'filter-active' : ''} onClick={() => { setMode('none'); setVideoError('') }}>Practice without video</button><button className={mode === 'video' ? 'filter-active' : ''} onClick={() => { setMode('video'); setVideoError('') }}>Practice with video</button></div><div className="practice-workspace"><section className="practice-target panel"><span className="eyebrow">Target sign · {target.category}</span><div className="target-visual"><span>{target.emoji}</span><small>Sign demonstration area · placeholder</small></div><h2>{target.term}</h2><p>{target.meaning}</p>{mode === 'video' ? <><PracticeVideo active onDetection={setDetected} onError={(error) => { setVideoError(error.message || 'Camera or gesture model unavailable.'); setMode('none') }} /><div className="practice-accuracy"><div><span>Accuracy</span><strong>{accuracy}%</strong></div><ProgressBar value={accuracy} tone="coral" /><p>{detected?.sign ? `Detected: ${detected.sign} · Confidence: ${Math.round((detected.confidence || 0) * 100)}%` : 'Make the target sign in front of the camera.'}</p></div></> : <div className="practice-actions"><Button onClick={() => setAttempts((value) => value + 1)} variant="outline" icon={RotateCcw}>Still practicing</Button><Button onClick={() => setAttempts((value) => value + 1)} icon={CheckCircle2}>I did it</Button></div>}{videoError && <div className="camera-error" role="alert"><AlertTriangle size={17} /><span>{videoError}</span></div>}<Button onClick={next} variant="outline" icon={ChevronRight}>Next sign</Button></section><section className="practice-guide panel"><span className="eyebrow">How to practice</span><h2>Small steps, repeated often.</h2><p>Copy the target hand shape and movement. Video accuracy is based on the prototype recognizer and is not a substitute for educator feedback.</p><div className="guide-list"><div><strong>1</strong><span>Choose a sign and study its shape.</span></div><div><strong>2</strong><span>Repeat the motion slowly and clearly.</span></div><div><strong>3</strong><span>Use self-check or camera feedback.</span></div></div></section></div></>
+  return <>
+    <div className="page-header"><div><span className="eyebrow">Build your fluency</span><h1>Practice: {target.term.toUpperCase()}</h1><p>Practice with or without video. Video accuracy compares the detected ISL sign with your selected target.</p></div><div className="practice-stat"><strong>{attempts}</strong><span>attempts recorded</span></div></div>
+    <div className="practice-mode-switch"><button className={mode === 'none' ? 'filter-active' : ''} onClick={() => { setMode('none'); setVideoError('') }}>Practice without video</button><button className={mode === 'video' ? 'filter-active' : ''} onClick={() => { setMode('video'); setVideoError('') }}>Practice with video</button></div>
+    <div className="practice-workspace"><section className="practice-target panel"><span className="eyebrow">Target sign - {target.category}</span><div className="target-visual"><span>{target.emoji}</span><small>Sign demonstration area - placeholder</small></div><h2>{target.term}</h2><p>{target.meaning}</p>{mode === 'video' ? <><PracticeVideo active onDetection={setDetected} onError={(error) => { setVideoError(error.message || 'Camera or gesture model unavailable.'); setMode('none') }} /><div className="practice-accuracy"><div><span>Accuracy</span><strong>{accuracy}%</strong></div><ProgressBar value={accuracy} tone="coral" /><p>{detected?.sign ? `Detected: ${detected.sign} - Confidence: ${Math.round((detected.confidence || 0) * 100)}%` : 'Make the target sign in front of the camera.'}</p></div></> : <div className="practice-actions"><Button onClick={completePractice} icon={CheckCircle2}>I did it</Button></div>}{videoError && <div className="camera-error" role="alert"><AlertTriangle size={17} /><span>{videoError}</span></div>}<div className="practice-navigation"><Button onClick={previous} variant="outline" icon={ChevronLeft}>Previous sign</Button><Button onClick={next} variant="outline" icon={ChevronRight}>Next sign</Button></div></section><section className="practice-guide panel"><span className="eyebrow">How to practice</span><h2>Small steps, repeated often.</h2><p>Copy the target hand shape and movement. Video accuracy is based on the prototype recognizer and is not a substitute for educator feedback.</p><div className="guide-list"><div><strong>1</strong><span>Choose a sign and study its shape.</span></div><div><strong>2</strong><span>Repeat the motion slowly and clearly.</span></div><div><strong>3</strong><span>Use self-check or camera feedback.</span></div></div></section></div>
+  </>
 }
