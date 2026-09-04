@@ -4,41 +4,44 @@ SignBridge AI is an accessibility-focused learning and communication prototype f
 
 ## Features
 
-- Responsive dashboard with signs learned, streak, quiz score, recent lessons, and daily practice
-- ISL learning library with category filters and sign demonstration placeholders
-- AI Sign Translator prototype with a camera preview state and confidence result
-- Text to Sign phrase sequencing experience
-- Practice room, interactive daily quiz, progress tracking, profile achievements, and settings
-- React Router navigation across all primary product areas
-- Light and dark themes with persisted preference
-- Mobile navigation drawer and accessible labels on icon controls
-- Camera permission flow, live preview, MediaPipe hand-landmark loading, recognition status, and session history
+- Responsive dashboard with personal learning progress, practice streaks, quiz averages, recent lessons, and daily practice
+- 17-sign ISL library with category filters, meanings, examples, hand-shape notes, and motion notes
+- AI Sign Translator with consent-first camera access, live preview, hand and pose landmark overlays, confidence results, and detection history
+- Practice mode with or without video, target-sign navigation, camera feedback, and accuracy comparison
+- Text to Sign phrase sequencing for supported words and common phrases
+- Interactive quiz, progress dashboard, profile achievements, settings, and learning-progress reset
+- Local sign-in and registration flow with browser-stored accounts and per-user progress
+- React Router navigation, responsive mobile drawer, accessible icon labels, and persisted light/dark themes
 
 ## Technology
 
-React, Vite, JavaScript, CSS, React Router, Lucide React, and browser APIs where available.
+React 19, Vite, JavaScript, CSS, React Router, Lucide React, MediaPipe Tasks Vision, and browser APIs.
 
-## AI translator architecture
+## Recognition architecture
 
-The translator keeps recognition separate from presentation:
+The camera and recognition pipeline is separated from the page UI:
 
 ```text
-Translator.jsx
+AppPages.jsx / PracticePage.jsx
   -> cameraService.js
     -> navigator.mediaDevices.getUserMedia()
-    -> video preview and track cleanup
+    -> video preview, permission handling, and track cleanup
   -> signRecognitionService.js
-    -> MediaPipe HandLandmarker (lazy loaded)
-    -> hand landmarks
-    -> classifyPrototypeGesture() adapter
-    -> detected ISL sign and text output
+    -> MediaPipe HandLandmarker and PoseLandmarker (lazy loaded)
+    -> hand and pose landmarks
+    -> buffered landmark feature extraction
+    -> prototype ISL gesture classifier
+    -> detected sign and confidence result
 ```
 
-The camera and landmark pipeline is real and handles permission, unavailable-device, model-loading, stopping, and unmount states. `classifyPrototypeGesture` is deliberately conservative and returns no sign until a trained ISL classifier is connected; it never generates random recognition results.
+The classifier currently uses normalized landmark features, hand shape, motion, and a short frame buffer to estimate a fixed prototype vocabulary: Hello, Good Morning, Thank You, Please, Sorry, Yes, No, A, B, One, Two, Water, Food, School, Help, Stop, and Doctor. It is a development prototype, not a trained production ISL translation model.
+
+Camera use is consent-first. The feed is processed in the browser, is not recorded or uploaded by this app, and can be stopped from the translator or practice screen. Camera access requires HTTPS or `localhost`.
 
 ## Install and run
 
 ```bash
+git clone https://github.com/temp205103-hacker/SignBridge-AI.git
 npm install
 npm run dev
 ```
@@ -49,22 +52,26 @@ Open the local URL printed by Vite. Production validation is available with `npm
 
 ```text
 src/
-  components/       Shared shell, navigation, cards, buttons, and UI primitives
-  data/             Example ISL signs and lesson data
-  pages/            Auth and route-level product views
-  App.jsx           Browser Router and route map
+  components/       Shared shell, camera consent dialog, buttons, and UI primitives
+  data/             ISL signs, lessons, text dictionary, and frequent phrases
+  pages/            Auth, dashboard, learning, translator, practice, quiz, and account views
+  services/         Browser auth, camera, and landmark-recognition services
+  App.jsx           Browser Router, protected routes, and auth routes
   App.css           Product design system and responsive layout
   index.css         Global reset and typography imports
 ```
 
-## Current limitations
+## Storage and prototype limitations
 
-This is a front-end prototype using realistic sample data. Sign demonstrations are placeholders, authentication is not connected to a backend, and progress is not synced between accounts. The translator currently loads MediaPipe hand landmarks but does not yet classify them into signs. Its supported vocabulary is limited to Hello, Thank You, Yes, No, Please, Help, Stop, and Water. It does not claim to translate every sign language or replace a qualified interpreter. Camera access requires a secure context such as HTTPS or localhost.
+This is a front-end prototype using sample learning content and placeholder sign demonstrations. Accounts, the current session, theme preference, camera consent, recent text queries, and learning progress are stored in the browser with `localStorage`; there is no backend,  cross-device synchronization. The text-to-sign dictionary currently covers selected everyday signs and phrases, while the learning library contains a broader sample vocabulary.
 
-## Future AI improvements
+The recognition result is based on heuristic landmark features and should not be treated as authoritative translation, medical or emergency guidance, or a replacement for a qualified interpreter. ISL has regional and signer variation that this prototype does not model. Review all educational content and recognition behavior with Deaf ISL educators before production use.
 
-- Connect consent-first browser camera access to an evaluated ISL gesture recognition model
-- Add temporal gesture recognition rather than single-frame classification
-- Provide confidence explanations, corrections, and signer-controlled feedback
-- Add regional variation notes and review from Deaf ISL educators
-- Persist learning history and personalize lesson sequencing
+## Future improvements
+
+- Replace the prototype classifier with an evaluated, educator-reviewed ISL recognition model
+- Add robust temporal gesture recognition and support for signer-controlled corrections
+- Add educator-reviewed image and video demonstrations
+- Add regional variation notes and accessibility testing with Deaf ISL users
+- Move authentication and learning history to a secure backend
+- Personalize lesson sequencing and synchronize progress across devices
